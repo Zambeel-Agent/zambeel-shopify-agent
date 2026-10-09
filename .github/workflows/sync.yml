@@ -1,13 +1,15 @@
 name: Zambeel to Shopify 24/7 Agent Sync
 
 on:
-  schedule:
-    - cron: '0 * * * *'
   workflow_dispatch:
+  # Aap chahein toh yahan automatic schedule bhi laga sakte hain, misal ke tor par har ghantay baad:
+  # schedule:
+  #   - cron: '0 * * * *'
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -24,8 +26,8 @@ jobs:
 
       - name: Run Sync Agent
         env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           SHOPIFY_SHOP_URL: ${{ secrets.SHOPIFY_SHOP_URL }}
-          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python sync_agent.py
