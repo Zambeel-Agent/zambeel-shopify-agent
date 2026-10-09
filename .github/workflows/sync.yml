@@ -2,9 +2,6 @@ name: Zambeel to Shopify 24/7 Agent Sync
 
 on:
   workflow_dispatch:
-  # Aap chahein toh yahan automatic schedule bhi laga sakte hain, misal ke tor par har ghantay baad:
-  # schedule:
-  #   - cron: '0 * * * *'
 
 jobs:
   sync:
