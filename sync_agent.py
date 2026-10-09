@@ -1,67 +1,143 @@
 import os
 import json
-import requests
 import gspread
-from google.oauth2.service_account import Credentials
+from oauth2client.service_account import ServiceAccountCredentials
+import requests
 
-SHOPIFY_SHOP_URL = os.environ.get("SHOPIFY_SHOP_URL")
-SHOPIFY_ACCESS_TOKEN = os.environ.get("SHOPIFY_ACCESS_TOKEN")
-GOOGLE_SHEET_ID = os.environ.get("GOOGLE_SHEET_ID")
-GOOGLE_CREDENTIALS_JSON = os.environ.get("GOOGLE_CREDENTIALS")
+# ---------------------------------------------------------
+# 1. SHOPIFY AUTHENTICATION & ACCESS TOKEN LOGIC
+# ---------------------------------------------------------
+def get_shopify_access_token():
+    """
+    Direct Access Token (shpat_) check karta hai. 
+    Agar na ho toh Client ID + Secret se Dev Dashboard App token auto-fetch karta hai.
+    """
+    direct_token = os.environ.get("SHOPIFY_ACCESS_TOKEN", "").strip()
+    if direct_token and direct_token.startswith("shpat_"):
+        print(" Using direct SHOPIFY_ACCESS_TOKEN.")
+        return direct_token
 
-scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
-creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-client = gspread.authorize(creds)
+    client_id = os.environ.get("SHOPIFY_CLIENT_ID", "").strip()
+    client_secret = os.environ.get("SHOPIFY_CLIENT_SECRET", "").strip()
+    shop_url = os.environ.get("SHOPIFY_SHOP_URL", "").strip()
 
-sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
+    if not client_id or not client_secret:
+        # Fallback to token if present
+        if direct_token:
+            return direct_token
+        raise ValueError("Missing SHOPIFY_CLIENT_ID or SHOPIFY_CLIENT_SECRET in GitHub Secrets.")
 
-def add_product_to_shopify(row, row_idx):
-    title = row.get("Title")
-    description = row.get("Description", "")
-    cost_price = row.get("Cost Price", "0")
-    selling_price = row.get("Selling Price (SAR)", "0")
-    image_url = row.get("Image URLs", "").split(",")[0].strip()
-    status = row.get("Status", "").strip()
+    url = f"https://{shop_url}/admin/oauth/access_token"
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials"
+    }
+    
+    print(" Requesting access token from Shopify OAuth server...")
+    response = requests.post(url, json=payload)
+    
+    if response.status_code == 200:
+        token = response.json().get("access_token")
+        print(" Token successfully generated from Shopify OAuth!")
+        return token
+    else:
+        raise Exception(f"OAuth Token Error ({response.status_code}): {response.text}")
 
-    if status.lower() == "uploaded" or not title:
-        return
+# ---------------------------------------------------------
+# 2. GOOGLE SHEETS CONNECTIVITY
+# ---------------------------------------------------------
+def connect_google_sheets():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    
+    # GitHub Action secret se json credentials extract karna
+    creds_json_str = os.environ.get("GCP_SERVICE_ACCOUNT_KEY")
+    if not creds_json_str:
+        raise ValueError("GCP_SERVICE_ACCOUNT_KEY environment variable missing!")
+        
+    creds_dict = json.loads(creds_json_str)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    client = gspread.authorize(creds)
+    
+    # Sheet Name ya Sheet ID
+    sheet_name = os.environ.get("GOOGLE_SHEET_NAME", "Zambeel Products")
+    sheet = client.open(sheet_name).sheet1
+    return sheet
 
-    url = f"https://{SHOPIFY_SHOP_URL}/admin/api/2024-01/products.json"
+# ---------------------------------------------------------
+# 3. SHOPIFY PRODUCT CREATION
+# ---------------------------------------------------------
+def create_shopify_product(shop_url, access_token, product_data):
+    endpoint = f"https://{shop_url}/admin/api/2024-01/products.json"
+    
     headers = {
-        "X-Shopify-Access-Token": SHOPIFY_ACCESS_TOKEN,
+        "X-Shopify-Access-Token": access_token,
         "Content-Type": "application/json"
     }
-
-    product_data = {
+    
+    # Product Payload
+    payload = {
         "product": {
-            "title": title,
-            "body_html": description,
+            "title": product_data.get("Title"),
+            "body_html": product_data.get("Description", ""),
+            "vendor": product_data.get("Vendor", "Zambeel"),
+            "product_type": product_data.get("Type", "General"),
             "variants": [
                 {
-                    "price": selling_price,
-                    "cost": cost_price
+                    "price": str(product_data.get("Price", "0.00")),
+                    "sku": str(product_data.get("SKU", ""))
                 }
             ]
         }
     }
-
+    
+    # Image support
+    image_url = product_data.get("Image URL")
     if image_url:
-        product_data["product"]["images"] = [{"src": image_url}]
+        payload["product"]["images"] = [{"src": image_url}]
+        
+    response = requests.post(endpoint, json=payload, headers=headers)
+    return response
 
-    response = requests.post(url, headers=headers, json=product_data)
-
-    if response.status_code == 201:
-        print(f"✅ Successfully created product: {title}")
-        sheet.update_cell(row_idx, 9, "Uploaded")
-    else:
-        print(f"❌ Failed to create product {title}: {response.text}")
-
+# ---------------------------------------------------------
+# 4. MAIN AGENT RUNNER
+# ---------------------------------------------------------
 def main():
+    shop_url = os.environ.get("SHOPIFY_SHOP_URL", "").strip()
+    if not shop_url:
+        raise ValueError("SHOPIFY_SHOP_URL secret is missing!")
+
+    print("--- Starting Zambeel to Shopify Sync Agent ---")
+    
+    # Get Shopify Access Token
+    access_token = get_shopify_access_token()
+    
+    # Connect to Google Sheet
+    sheet = connect_google_sheets()
     records = sheet.get_all_records()
-    print(f"Found {len(records)} products in Google Sheet.")
-    for idx, row in enumerate(records, start=2):
-        add_product_to_shopify(row, idx)
+    
+    print(f" Found {len(records)} products in Google Sheet.")
+    
+    for idx, row in enumerate(records, start=2):  # Row 1 is Header
+        status = str(row.get("Status", "")).strip().lower()
+        title = row.get("Title", "Untitled Product")
+        
+        # Unuploaded / Pending products search karna
+        if status in ["", "pending", "new"]:
+            print(f" Uploading product: '{title}'...")
+            
+            res = create_shopify_product(shop_url, access_token, row)
+            
+            if res.status_code == 201:
+                print(f" Successfully created '{title}' on Shopify!")
+                # Google Sheet mein status 'Uploaded' set karna
+                status_col_idx = list(row.keys()).index("Status") + 1
+                sheet.update_cell(idx, status_col_idx, "Uploaded")
+            else:
+                print(f" Failed to create product '{title}': {res.text}")
 
 if __name__ == "__main__":
     main()
