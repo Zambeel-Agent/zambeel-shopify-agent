@@ -1,7 +1,7 @@
 import os
 import json
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 import requests
 
 # 1. SHOPIFY AUTHENTICATION & ACCESS TOKEN LOGIC
@@ -39,8 +39,8 @@ def get_shopify_access_token():
 
 # 2. GOOGLE SHEETS CONNECTIVITY
 def connect_google_sheets():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
     
@@ -49,7 +49,7 @@ def connect_google_sheets():
         raise ValueError("GCP_SERVICE_ACCOUNT_KEY environment variable missing!")
         
     creds_dict = json.loads(creds_json_str)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
     
     sheet_name = os.environ.get("GOOGLE_SHEET_NAME", "Zambeel Products")
