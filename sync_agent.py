@@ -22,33 +22,17 @@ def connect_google_sheets():
     sheet = client.open(sheet_name).sheet1
     return sheet
 
-# 2. SHOPIFY ACCESS TOKEN GENERATOR
-def get_shopify_token():
-    shop_url = os.environ.get("SHOPIFY_SHOP_URL")
-    client_id = os.environ.get("SHOPIFY_CLIENT_ID")
-    client_secret = os.environ.get("SHOPIFY_CLIENT_SECRET")
-
-    print("Requesting access token from Shopify OAuth server...")
-    url = f"https://{shop_url}/admin/oauth/access_token"
-    payload = {
-        "client_id": client_id,
-        "client_secret": client_secret
-    }
-    response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        data = response.json()
-        print("Token successfully generated from Shopify OAuth!")
-        return data.get("access_token")
-    else:
-        raise Exception(f"Failed to get Shopify token: {response.text}")
-
-# 3. MAIN SYNC LOGIC
+# 2. MAIN SYNC LOGIC
 def main():
     sheet = connect_google_sheets()
     rows = sheet.get_all_records()
     print(f"Found {len(rows)} total rows in Google Sheet.")
 
-    token = get_shopify_token()
+    # Direct Admin API Access Token use hoga
+    token = os.environ.get("SHOPIFY_ACCESS_TOKEN")
+    if not token:
+        raise ValueError("SHOPIFY_ACCESS_TOKEN environment variable missing!")
+
     shop_url = os.environ.get("SHOPIFY_SHOP_URL")
     api_url = f"https://{shop_url}/admin/api/2024-10/products.json"
     headers = {
@@ -57,10 +41,9 @@ def main():
     }
 
     success_count = 0
-    for idx, row in enumerate(rows, start=2):  # Row 2 se start kyun ke Row 1 headers hain
+    for idx, row in enumerate(rows, start=2):
         status = str(row.get("Status", "")).strip().lower()
         
-        # Sirf pending products uthay ga
         if status == "pending":
             title = row.get("Title", "")
             description = row.get("Description", "")
@@ -69,7 +52,6 @@ def main():
 
             print(f"Uploading product: '{title}' with Price: {selling_price} SAR...")
 
-            # Shopify product payload with correct Price and Images mapping
             product_data = {
                 "product": {
                     "title": title,
@@ -96,8 +78,7 @@ def main():
             
             if res.status_code == 201:
                 print(f"Successfully created '{title}' on Shopify!")
-                # Google sheet mein status update karke 'Uploaded' kar dein
-                sheet.update_cell(idx, 9, "Uploaded")  # Column 9 is Status ('I')
+                sheet.update_cell(idx, 9, "Uploaded")
                 success_count += 1
             else:
                 print(f"Failed to create product '{title}': {res.text}")
