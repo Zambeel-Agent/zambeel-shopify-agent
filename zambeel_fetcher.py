@@ -22,16 +22,15 @@ def connect_google_sheets():
     sheet = client.open(sheet_name).sheet1
     return sheet
 
-# 2. FETCH WINNING PRODUCTS FROM ZAMBEEL (API / PORTAL)
+# 2. FETCH WINNING PRODUCTS FROM ZAMBEEL
 def fetch_zambeel_products():
     zambeel_api_key = os.environ.get("ZAMBEEL_API_KEY", "")
     
     print("--- Fetching Winning Products from Zambeel ---")
     
-    # AGAR API KEY HOGI:
     if zambeel_api_key:
         headers = {"Authorization": f"Bearer {zambeel_api_key}"}
-        url = "https://api.zambeel.com/v1/products/winning" # Sample endpoint
+        url = "https://api.zambeel.com/v1/products/winning"
         try:
             res = requests.get(url, headers=headers)
             if res.status_code == 200:
@@ -39,17 +38,17 @@ def fetch_zambeel_products():
         except Exception as e:
             print(f"API Error: {e}")
 
-    # AGAR DIRECT API NA HO (Dummy/Sample Winning Products format for initial sync testing):
-    print("Using automated winning products fetcher mode...")
+    # Sample winning product matching sheet columns exactly
     sample_winning_products = [
         {
-            "Title": "Smart Fitness Watch Ultra",
-            "Description": "Waterproof smart watch with heart rate and sleep tracking.",
-            "Price": "49.99",
-            "SKU": "ZAM-WATCH-001",
-            "Type": "Electronics",
-            "Vendor": "Zambeel",
-            "Image URL": "https://via.placeholder.com/600x600.png?text=Smart+Watch",
+            "Title": "Wireless Earbuds Pro",
+            "Description": "High quality wireless earbuds with active noise cancellation.",
+            "Cost_Price": "40",
+            "Selling_Price": "120",
+            "Image_URL": "https://images.unsplash.com/photo-1590658268037-6bf12165a8df",
+            "Color": "Black",
+            "Warehouse_Stock": "50",
+            "Product_URL": "https://zambeel.com/product/wireless-earbuds-pro",
             "Status": "pending"
         }
     ]
@@ -59,32 +58,35 @@ def fetch_zambeel_products():
 def main():
     sheet = connect_google_sheets()
     existing_records = sheet.get_all_records()
-    existing_skus = [str(r.get("SKU", "")) for r in existing_records if r.get("SKU")]
+    existing_titles = [str(r.get("Title", "")) for r in existing_records if r.get("Title")]
 
     products = fetch_zambeel_products()
     print(f"Fetched {len(products)} products from Zambeel.")
 
     added_count = 0
     for prod in products:
-        sku = str(prod.get("SKU", ""))
+        title = str(prod.get("Title", ""))
         
-        # Duplicate check: Agar SKU pehle se sheet me na ho
-        if sku not in existing_skus:
+        # Check duplicate by Title
+        if title not in existing_titles:
+            # Exact 9 columns mapping:
+            # A: Title, B: Description, C: Cost Price, D: Selling Price (SAR), E: Image URLs, F: Color, G: Warehouse Stock, H: Product URL, I: Status
             row = [
                 prod.get("Title", ""),
                 prod.get("Description", ""),
-                prod.get("Price", "0.00"),
-                prod.get("SKU", ""),
-                prod.get("Type", "General"),
-                prod.get("Vendor", "Zambeel"),
-                prod.get("Image URL", ""),
-                "pending"  # Status pending rakhein taake Shopify Sync Agent isey upload kar sake
+                prod.get("Cost_Price", "0"),
+                prod.get("Selling_Price", "0"),
+                prod.get("Image_URL", ""),
+                prod.get("Color", ""),
+                prod.get("Warehouse_Stock", "0"),
+                prod.get("Product_URL", ""),
+                "pending"
             ]
             sheet.append_row(row)
-            print(f"Added to Google Sheet: {prod.get('Title')}")
+            print(f"Added to Google Sheet: {title}")
             added_count += 1
         else:
-            print(f"Product already exists in Sheet (SKU: {sku})")
+            print(f"Product already exists in Sheet: {title}")
 
     print(f"Done! Added {added_count} new winning products to Google Sheet.")
 
