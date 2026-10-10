@@ -22,17 +22,36 @@ def connect_google_sheets():
     sheet = client.open(sheet_name).sheet1
     return sheet
 
-# 2. MAIN SYNC LOGIC
+# 2. SHOPIFY ACCESS TOKEN GENERATOR VIA CLIENT CREDENTIALS
+def get_shopify_token():
+    shop_url = os.environ.get("SHOPIFY_SHOP_URL")
+    client_id = os.environ.get("SHOPIFY_CLIENT_ID")
+    client_secret = os.environ.get("SHOPIFY_CLIENT_SECRET")
+
+    url = f"https://{shop_url}/admin/oauth/access_token"
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials"
+    }
+    
+    print("Requesting access token from Shopify OAuth server...")
+    response = requests.post(url, json=payload)
+    
+    if response.status_code == 200:
+        data = response.json()
+        print("Token successfully retrieved from Shopify!")
+        return data.get("access_token")
+    else:
+        raise Exception(f"Failed to get Shopify token: {response.text}")
+
+# 3. MAIN SYNC LOGIC
 def main():
     sheet = connect_google_sheets()
     rows = sheet.get_all_records()
     print(f"Found {len(rows)} total rows in Google Sheet.")
 
-    # Direct Admin API Access Token use hoga
-    token = os.environ.get("SHOPIFY_ACCESS_TOKEN")
-    if not token:
-        raise ValueError("SHOPIFY_ACCESS_TOKEN environment variable missing!")
-
+    token = get_shopify_token()
     shop_url = os.environ.get("SHOPIFY_SHOP_URL")
     api_url = f"https://{shop_url}/admin/api/2024-10/products.json"
     headers = {
@@ -61,7 +80,7 @@ def main():
                     "variants": [
                         {
                             "price": selling_price,
-                            "sku": row.get("SKU", "ZAM-SKU-001"),
+                            "sku": str(row.get("SKU", "ZAM-SKU-001")),
                             "inventory_management": "shopify",
                             "inventory_quantity": int(row.get("Warehouse Stock", 10))
                         }
