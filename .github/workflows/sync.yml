@@ -2,11 +2,14 @@ name: Zambeel to Shopify 24/7 Agent Sync
 
 on:
   workflow_dispatch:
+  schedule:
+    # Har 6 ghante baad automatically chalega
+    - cron: '0 */6 * * *'
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -21,10 +24,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Sync Agent
+      - name: Fetch Zambeel Products
         env:
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SHEET_NAME: "Zambeel Products"
+          ZAMBEEL_API_KEY: ${{ secrets.ZAMBEEL_API_KEY }}
+        run: python zambeel_fetcher.py
+
+      - name: Run Sync Agent
+        env:
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           SHOPIFY_SHOP_URL: ${{ secrets.SHOPIFY_SHOP_URL }}
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          GOOGLE_SHEET_NAME: "Zambeel Products"
         run: python sync_agent.py
